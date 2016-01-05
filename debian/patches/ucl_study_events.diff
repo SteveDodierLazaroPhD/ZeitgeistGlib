@@ -1,0 +1,331 @@
+Index: wily/configure.ac
+===================================================================
+--- wily.orig/configure.ac
++++ wily/configure.ac
+@@ -391,6 +391,23 @@ if test x"$PYTHON" = xyes; then
+ fi
+ AM_PATH_PYTHON(2.5,,PYTHON="/usr/bin/env python2.5")
+ 
++dnl ************************************
++dnl *** Check for libzeitgeist (GIO) ***
++dnl ************************************
++PKG_CHECK_EXISTS(zeitgeist-1.0, [have_zeitgeist_deps=true], [have_zeitgeist_deps=false])
++
++AC_MSG_CHECKING(zeitgeist-1.0)
++if $PKG_CONFIG --exists zeitgeist-1.0 ; then
++  AC_DEFINE(__ZEITGEIST_TRACKER__, 1, [Have Zeitgeist])
++
++  CFLAGS="$CFLAGS `$PKG_CONFIG --cflags zeitgeist-1.0`"
++  AC_SUBST(CFLAGS)
++  AC_MSG_RESULT($CFLAGS)
++
++else
++  AC_MSG_ERROR([*** Working Zeitgeist library and headers not found ***])
++fi
++
+ 
+ dnl ***********************
+ dnl *** Tests for iconv ***
+Index: wily/gio/gdesktopappinfo.c
+===================================================================
+--- wily.orig/gio/gdesktopappinfo.c
++++ wily/gio/gdesktopappinfo.c
+@@ -38,6 +38,8 @@
+ #include "glib-unix.h"
+ #endif
+ #include "gfile.h"
++#include "gfileinfo.h"
++#include "glist.h"
+ #include "gioerror.h"
+ #include "gthemedicon.h"
+ #include "gfileicon.h"
+@@ -47,6 +49,23 @@
+ #include "gappinfo.h"
+ #include "gappinfoprivate.h"
+ #include "glocalfilemonitor.h"
++#include "gprintf.h"
++#include <zeitgeist.h>
++#define ZEITGEIST_ZG_TOOLKIT_APP_ACCESS_EVENT "activity://gui-toolkit/glib/AppAccess"
++
++typedef struct __ZeitgeistAppInfoData {
++	gchar *actor_name;
++	gchar *current_uri;
++	GList *uris;
++	GList *files;
++} _ZeitgeistAppInfoData;
++
++typedef struct __ZeitgeistAppInfoFileData {
++	gchar *uri;
++	gchar *display_name;
++	gchar *origin;
++	gchar *mime_type;
++} _ZeitgeistAppInfoFileData;
+ 
+ /**
+  * SECTION:gdesktopappinfo
+@@ -2872,6 +2891,242 @@ g_desktop_app_info_launch_uris_with_dbus
+   return TRUE;
+ }
+ 
++static gchar *
++_get_actor_name_from_pid (pid_t pid)
++{
++    char         *link_file     = NULL;
++    char         *link_target   = NULL;
++    char        **split_target  = NULL;
++    char         *actor_name    = NULL;
++    ssize_t       read_len      = PATH_MAX; // 4096, so it's unlikely link_len ever overflows :)
++    ssize_t       link_len      = 1;
++
++    if (pid <= 0)
++    {
++        return NULL;
++    }
++
++    link_file = g_strdup_printf ("/proc/%d/exe", pid);
++    if (link_file == NULL)
++    {
++        return NULL;
++    }
++
++    // It is impossible to obtain the size of /proc link targets as /proc is
++    // not POSIX compliant. Hence, we start from the NAME_MAX limit and increase
++    // it all the way up to readlink failing. readlink will fail upon reaching
++    // the PATH_MAX limit on Linux implementations. read_len will be strictly
++    // inferior to link_len as soon as the latter is big enough to contain the
++    // path to the executable and a trailing null character.
++    while (read_len >= link_len)
++    {
++        link_len += NAME_MAX;
++
++        g_free(link_target);
++        link_target = g_malloc(link_len * sizeof (char));
++
++        if (link_target == NULL)
++        {
++            g_free (link_file);
++            g_free (link_target);
++            return NULL;
++        }
++
++        read_len= readlink (link_file, link_target, link_len);
++
++        if (read_len < 0)
++        {
++            g_free (link_file);
++            g_free (link_target);
++            return NULL;
++        }
++    }
++
++    g_free (link_file);
++
++    // readlink does not null-terminate the string
++    link_target[read_len] = '\0';
++
++    split_target = g_strsplit (link_target, "/", -1);
++    g_free (link_target);
++
++    if(split_target == NULL)
++    {
++        return NULL;
++    }
++
++    // Iterate to the last element which is the executable name
++    for (read_len = 0; split_target[read_len]; read_len++);
++
++    // Turn it into an arbitrary actor name
++    actor_name = g_strdup_printf ("application://%s.desktop", split_target[--read_len]);
++    g_strfreev (split_target);
++
++    // Better safe than sorry
++    if (!actor_name)
++      actor_name =g_strdup ("application://unknown.desktop");
++
++    return actor_name;
++}
++
++static void
++_log_zeitgeist_event_finish (_ZeitgeistAppInfoData *data)
++{
++  ZeitgeistLog     *log          = zeitgeist_log_get_default ();
++  ZeitgeistEvent   *event        = NULL;
++  ZeitgeistSubject *subject      = NULL;
++  GList            *iterator     = NULL;
++  char             *caller_name  = NULL;
++  char             *study_uri    = NULL;
++  char             *display_name = NULL;
++
++  // Create the event to be added, with the known information
++  caller_name = _get_actor_name_from_pid (getpid());
++  event = zeitgeist_event_new_full (
++    ZEITGEIST_ZG_TOOLKIT_APP_ACCESS_EVENT,
++    ZEITGEIST_ZG_USER_ACTIVITY,
++    caller_name,
++    NULL);
++  g_free (caller_name);
++
++  // Add the subject for the launched application
++  display_name = g_strdup_printf ("Launched application: %s", data->actor_name);
++  zeitgeist_event_add_subject (event, zeitgeist_subject_new_full (data->actor_name,
++                                    ZEITGEIST_NFO_APPLICATION,
++                                    ZEITGEIST_ZG_WORLD_ACTIVITY,
++                                    "application/octet-stream",
++                                    NULL,
++                                    display_name,
++                                    NULL));
++  g_free (display_name);
++  g_free (data->actor_name);
++
++  // Loop through files to insert subjects into the event
++  for (iterator=data->files; iterator; iterator=iterator->next) {
++    _ZeitgeistAppInfoFileData *fdata = iterator->data;
++
++    // Add the subject now that all information has been calculated
++    zeitgeist_event_add_subject (event, zeitgeist_subject_new_full (fdata->uri,
++                                      NULL, //(g_strcmp0 (mime_type, "inode/directory") == 0) ? ZEITGEIST_NFO_FOLDER : ZEITGEIST_NFO_DOCUMENT,
++                                      NULL, //ZEITGEIST_NFO_FILE_DATA_OBJECT,
++                                      fdata->mime_type,
++                                      fdata->origin,
++                                      fdata->display_name,
++                                      NULL));
++
++    g_free (fdata->display_name);
++    g_free (fdata->origin);
++    g_free (fdata->mime_type);
++    g_free (fdata->uri);
++    g_free (fdata);
++  }
++
++  // Add the UCL metadata
++  study_uri = g_strdup_printf("activity://null///pid://%d///winid://n/a///", getpid());
++  subject = zeitgeist_subject_new_full(study_uri,
++    ZEITGEIST_NFO_SOFTWARE,
++    ZEITGEIST_ZG_WORLD_ACTIVITY,
++    "application/octet-stream",
++    NULL,
++    "ucl-study-metadata",
++    NULL);
++  zeitgeist_event_add_subject (event, subject);
++  g_free(study_uri);
++
++  // Send the event
++  zeitgeist_log_insert_events_no_reply (log, event, NULL);
++
++  g_list_free (data->files);
++  g_list_free_full (data->uris, g_free);
++  g_free (data);
++}
++
++static void
++_log_zeitgeist_event_add_file (_ZeitgeistAppInfoData *data);
++
++static void
++_log_zeitgeist_event_add_file_cb (GObject *source_object,
++                                  GAsyncResult *res,
++                                  gpointer user_data)
++{
++  _ZeitgeistAppInfoData     *data  = user_data;
++  _ZeitgeistAppInfoFileData *fdata = g_malloc (sizeof (_ZeitgeistAppInfoFileData));
++  GFileInfo                 *info  = g_file_query_info_finish (G_FILE (source_object), res, NULL);
++
++  // Add the file info to our list
++  fdata->uri = data->current_uri; // second transfer of ownership
++  fdata->origin = g_path_get_dirname (fdata->uri);
++
++  // Info was found!
++  if (info) {
++    fdata->display_name = g_strdup (g_file_info_get_display_name (info));
++    #ifdef __ZEITGEIST_FAST__
++    fdata->mime_type = g_content_type_get_mime_type (g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE));
++    #else
++    fdata->mime_type = g_content_type_get_mime_type (g_file_info_get_content_type (info));
++    #endif
++  } else {
++    fdata->display_name = g_path_get_basename (fdata->uri);
++    fdata->mime_type = g_content_type_guess (fdata->uri, NULL, 0, NULL);
++  }
++
++  // Last-resort solutions for display name and mime type
++  if (!fdata->display_name)
++    fdata->display_name = g_strdup (fdata->uri);
++  if (!fdata->mime_type)
++    fdata->mime_type = g_strdup ("application/octet-stream");
++  data->files = g_list_append (data->files, fdata);
++
++  // Next file...
++  g_object_unref (source_object);
++  data->current_uri = NULL;
++  _log_zeitgeist_event_add_file (data);
++}
++
++static void
++_log_zeitgeist_event_add_file (_ZeitgeistAppInfoData *data)
++{
++  // Still some files to process
++  if (data->uris) {
++    gchar *first = g_list_first (data->uris)->data;
++    data->uris = g_list_remove (data->uris, first);
++    data->current_uri = first; // first transfer of ownership
++
++    g_file_query_info_async (g_file_new_for_uri (first),
++        G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME ","
++            G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE,
++        G_FILE_QUERY_INFO_NONE,
++        G_PRIORITY_DEFAULT,
++        NULL,
++        _log_zeitgeist_event_add_file_cb, data);
++  } else {
++    _log_zeitgeist_event_finish (data);
++  }
++}
++
++static void
++_log_zeitgeist_event_launch (GAppInfo                   *appinfo,
++                             GList                      *uris)
++{
++  _ZeitgeistAppInfoData *data         = NULL;
++
++  g_return_if_fail (G_IS_DESKTOP_APP_INFO (appinfo));
++
++  data = g_malloc (sizeof (_ZeitgeistAppInfoData));
++
++  // Make up a plausible actor name from the name of the process' executable
++  data->actor_name = g_strdup_printf ("application://%s", g_desktop_app_info_get_id (appinfo));
++  if(data->actor_name == NULL) {
++    data->actor_name = g_strdup ("application://unknown.desktop");
++  }
++
++  data->current_uri = NULL;
++  data->files = NULL;
++  data->uris = g_list_copy_deep (uris, (GCopyFunc) g_strdup, NULL);
++
++  _log_zeitgeist_event_add_file (data);
++}
++
+ static gboolean
+ g_desktop_app_info_launch_uris_internal (GAppInfo                   *appinfo,
+                                          GList                      *uris,
+@@ -2889,6 +3144,8 @@ g_desktop_app_info_launch_uris_internal
+ 
+   session_bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, NULL);
+ 
++  _log_zeitgeist_event_launch (appinfo, uris);
++
+   if (session_bus && info->app_id)
+     g_desktop_app_info_launch_uris_with_dbus (info, session_bus, uris, launch_context);
+   else
+Index: wily/gio/Makefile.am
+===================================================================
+--- wily.orig/gio/Makefile.am
++++ wily/gio/Makefile.am
+@@ -681,6 +681,9 @@ gio-public-headers.txt: Makefile
+ 
+ CLEANFILES += gdbus-daemon-generated.c gdbus-daemon-generated.h gio-public-headers.txt gconstructor_as_data.h
+ 
++# Zeitgeist event tracking
++AM_CFLAGS += -I/usr/include/zeitgeist-1.0 -I/usr/include/glib-2.0
++platform_libadd += -lzeitgeist-1.0 -lgobject-2.0 -lglib-2.0
+ 
+ DISTCLEANFILES += 		\
+ 	gioenumtypes.h		\

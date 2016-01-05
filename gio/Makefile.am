@@ -681,6 +681,9 @@ gio-public-headers.txt: Makefile
 
 CLEANFILES += gdbus-daemon-generated.c gdbus-daemon-generated.h gio-public-headers.txt gconstructor_as_data.h
 
+# Zeitgeist event tracking
+AM_CFLAGS += -I/usr/include/zeitgeist-1.0 -I/usr/include/glib-2.0
+platform_libadd += -lzeitgeist-1.0 -lgobject-2.0 -lglib-2.0
 
 DISTCLEANFILES += 		\
 	gioenumtypes.h		\

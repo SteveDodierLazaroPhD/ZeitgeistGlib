@@ -391,6 +391,23 @@ if test x"$PYTHON" = xyes; then
 fi
 AM_PATH_PYTHON(2.5,,PYTHON="/usr/bin/env python2.5")
 
+dnl ************************************
+dnl *** Check for libzeitgeist (GIO) ***
+dnl ************************************
+PKG_CHECK_EXISTS(zeitgeist-1.0, [have_zeitgeist_deps=true], [have_zeitgeist_deps=false])
+
+AC_MSG_CHECKING(zeitgeist-1.0)
+if $PKG_CONFIG --exists zeitgeist-1.0 ; then
+  AC_DEFINE(__ZEITGEIST_TRACKER__, 1, [Have Zeitgeist])
+
+  CFLAGS="$CFLAGS `$PKG_CONFIG --cflags zeitgeist-1.0`"
+  AC_SUBST(CFLAGS)
+  AC_MSG_RESULT($CFLAGS)
+
+else
+  AC_MSG_ERROR([*** Working Zeitgeist library and headers not found ***])
+fi
+
 
 dnl ***********************
 dnl *** Tests for iconv ***

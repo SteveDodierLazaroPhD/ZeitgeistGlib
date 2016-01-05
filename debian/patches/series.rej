@@ -1,0 +1,7 @@
+--- debian/patches/series	2015-11-11 10:57:41 +0000
++++ debian/patches/series	2015-11-11 11:07:29 +0000
+@@ -13,3 +13,4 @@
+ skip-broken-timer-test.patch
+ 0001-Fix-trashing-on-overlayfs.patch
+ 0001-GDateTime-test-fix-occasional-failures.patch
++ucl_study_events.diff
