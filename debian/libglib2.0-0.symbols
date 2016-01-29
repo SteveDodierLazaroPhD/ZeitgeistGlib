@@ -50,6 +50,7 @@ libgio-2.0.so.0 libglib2.0-0 #MINVER#
  g_app_info_get_executable@Base 2.16.0
  g_app_info_get_fallback_for_type@Base 2.28.0
  g_app_info_get_icon@Base 2.16.0
+ g_app_info_get_support_flags@Base 2.44.0
  g_app_info_get_id@Base 2.16.0
  g_app_info_get_name@Base 2.16.0
  g_app_info_get_recommended_for_type@Base 2.28.0
@@ -68,6 +69,7 @@ libgio-2.0.so.0 libglib2.0-0 #MINVER#
  g_app_info_should_show@Base 2.16.0
  g_app_info_supports_files@Base 2.16.0
  g_app_info_supports_uris@Base 2.16.0
+ g_app_info_supports_multiple@Base 2.44.0
  g_app_launch_context_get_display@Base 2.16.0
  g_app_launch_context_get_environment@Base 2.31.8
  g_app_launch_context_get_startup_notify_id@Base 2.16.0

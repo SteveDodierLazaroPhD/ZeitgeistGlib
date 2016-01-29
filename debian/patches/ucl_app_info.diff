@@ -1,0 +1,299 @@
+Index: wily/gio/gappinfo.c
+===================================================================
+--- wily.orig/gio/gappinfo.c
++++ wily/gio/gappinfo.c
+@@ -513,6 +513,30 @@ g_app_info_get_icon (GAppInfo *appinfo)
+ 
+ 
+ /**
++ * g_app_info_get_support_flags:
++ * @appinfo: a #GAppInfo.
++ * 
++ * Gets the #GAppInfoCreateFlags for the application that indicate whether
++ * the application supports files or URIs, and whether the application
++ * supports opening multiple documents in a single instance.
++ *
++ * Returns: (transfer none): the #GAppInfoCreateFlags for @appinfo for file and
++ * URI support.
++ **/
++GAppInfoCreateFlags
++g_app_info_get_support_flags (GAppInfo *appinfo)
++{
++  GAppInfoIface *iface;
++  
++  g_return_val_if_fail (G_IS_APP_INFO (appinfo), G_APP_INFO_CREATE_NONE);
++
++  iface = G_APP_INFO_GET_IFACE (appinfo);
++
++  return (* iface->get_support_flags) (appinfo);
++}
++
++
++/**
+  * g_app_info_launch:
+  * @appinfo: a #GAppInfo
+  * @files: (allow-none) (element-type GFile): a #GList of #GFile objects
+@@ -586,6 +610,27 @@ g_app_info_supports_uris (GAppInfo *appi
+ }
+ 
+ 
++/**
++ * g_app_info_supports_multiple:
++ * @appinfo: a #GAppInfo.
++ * 
++ * Checks if the application supports reading multiple files per instance.
++ *
++ * Returns: %TRUE if the @appinfo supports multiples.
++ **/
++gboolean
++g_app_info_supports_multiple (GAppInfo *appinfo)
++{
++  GAppInfoIface *iface;
++  
++  g_return_val_if_fail (G_IS_APP_INFO (appinfo), FALSE);
++
++  iface = G_APP_INFO_GET_IFACE (appinfo);
++
++  return (* iface->supports_multiple) (appinfo);
++}
++
++
+ /**
+  * g_app_info_supports_files:
+  * @appinfo: a #GAppInfo.
+Index: wily/gio/gappinfo.h
+===================================================================
+--- wily.orig/gio/gappinfo.h
++++ wily/gio/gappinfo.h
+@@ -61,8 +61,10 @@ typedef struct _GAppLaunchContextPrivate
+  * @get_description: Gets a short description for the application described by the #GAppInfo.
+  * @get_executable: Gets the executable name for the #GAppInfo.
+  * @get_icon: Gets the #GIcon for the #GAppInfo.
++ * @get_support_flags: Gets the #GAppInfoCreateFlags of the #GAppInfo related to file and URI support.
+  * @launch: Launches an application specified by the #GAppInfo.
+  * @supports_uris: Indicates whether the application specified supports launching URIs.
++ * @supports_multiple: Indicates whether the application specified supports launching multiple items per instance.
+  * @supports_files: Indicates whether the application specified accepts filename arguments.
+  * @launch_uris: Launches an application with a list of URIs.
+  * @should_show: Returns whether an application should be shown (e.g. when getting a list of installed applications).
+@@ -98,11 +100,13 @@ struct _GAppInfoIface
+   const char * (* get_description)              (GAppInfo           *appinfo);
+   const char * (* get_executable)               (GAppInfo           *appinfo);
+   GIcon *      (* get_icon)                     (GAppInfo           *appinfo);
++  GAppInfoCreateFlags (* get_support_flags)     (GAppInfo           *appinfo);
+   gboolean     (* launch)                       (GAppInfo           *appinfo,
+                                                  GList              *files,
+                                                  GAppLaunchContext  *launch_context,
+                                                  GError            **error);
+   gboolean     (* supports_uris)                (GAppInfo           *appinfo);
++  gboolean     (* supports_multiple)            (GAppInfo           *appinfo);
+   gboolean     (* supports_files)               (GAppInfo           *appinfo);
+   gboolean     (* launch_uris)                  (GAppInfo           *appinfo,
+                                                  GList              *uris,
+@@ -161,6 +165,8 @@ const char *g_app_info_get_commandline
+ GLIB_AVAILABLE_IN_ALL
+ GIcon *     g_app_info_get_icon                     (GAppInfo             *appinfo);
+ GLIB_AVAILABLE_IN_ALL
++GAppInfoCreateFlags g_app_info_get_support_flags    (GAppInfo             *appinfo);
++GLIB_AVAILABLE_IN_ALL
+ gboolean    g_app_info_launch                       (GAppInfo             *appinfo,
+                                                      GList                *files,
+                                                      GAppLaunchContext    *launch_context,
+@@ -168,6 +174,8 @@ gboolean    g_app_info_launch
+ GLIB_AVAILABLE_IN_ALL
+ gboolean    g_app_info_supports_uris                (GAppInfo             *appinfo);
+ GLIB_AVAILABLE_IN_ALL
++gboolean    g_app_info_supports_multiple            (GAppInfo             *appinfo);
++GLIB_AVAILABLE_IN_ALL
+ gboolean    g_app_info_supports_files               (GAppInfo             *appinfo);
+ GLIB_AVAILABLE_IN_ALL
+ gboolean    g_app_info_launch_uris                  (GAppInfo             *appinfo,
+Index: wily/gio/gdesktopappinfo.c
+===================================================================
+--- wily.orig/gio/gdesktopappinfo.c
++++ wily/gio/gdesktopappinfo.c
+@@ -52,6 +52,7 @@
+ #include "gprintf.h"
+ #include <zeitgeist.h>
+ #define ZEITGEIST_ZG_TOOLKIT_APP_ACCESS_EVENT "activity://gui-toolkit/glib/AppAccess"
++#define ZEITGEIST_APP_LAUNCH_ACTOR            "activity://gui-toolkit/glib/Actor"
+ 
+ typedef struct __ZeitgeistAppInfoData {
+ 	gchar *actor_name;
+@@ -2087,6 +2088,19 @@ g_desktop_app_info_get_icon (GAppInfo *a
+   return info->icon;
+ }
+ 
++static GAppInfoCreateFlags
++g_desktop_app_info_get_support_flags (GAppInfo *appinfo)
++{
++  GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
++
++  if (g_app_info_supports_uris (appinfo))
++    flags += G_APP_INFO_CREATE_SUPPORTS_URIS;
++  if (g_app_info_supports_multiple (appinfo))
++    flags += G_APP_INFO_CREATE_SUPPORTS_MULTIPLE;
++
++  return flags;
++}
++
+ /**
+  * g_desktop_app_info_get_categories:
+  * @info: a #GDesktopAppInfo
+@@ -3024,7 +3038,7 @@ _log_zeitgeist_event_finish (_ZeitgeistA
+   // Add the UCL metadata
+   study_uri = g_strdup_printf("activity://null///pid://%d///winid://n/a///", getpid());
+   subject = zeitgeist_subject_new_full(study_uri,
+-    ZEITGEIST_NFO_SOFTWARE,
++    ZEITGEIST_APP_LAUNCH_ACTOR,
+     ZEITGEIST_ZG_WORLD_ACTIVITY,
+     "application/octet-stream",
+     NULL,
+@@ -3190,6 +3204,16 @@ g_desktop_app_info_supports_uris (GAppIn
+ }
+ 
+ static gboolean
++g_desktop_app_info_supports_multiple (GAppInfo *appinfo)
++{
++  GDesktopAppInfo *info = G_DESKTOP_APP_INFO (appinfo);
++
++  return info->exec &&
++    ((strstr (info->exec, "%F") != NULL) ||
++     (strstr (info->exec, "%U") != NULL));
++}
++
++static gboolean
+ g_desktop_app_info_supports_files (GAppInfo *appinfo)
+ {
+   GDesktopAppInfo *info = G_DESKTOP_APP_INFO (appinfo);
+@@ -3931,6 +3955,32 @@ g_desktop_app_info_delete (GAppInfo *app
+   return FALSE;
+ }
+ 
++static gchar *
++inject_file_placeholder (const char *commandline,
++                         const char *placeholder)
++{
++  gchar *exec;
++  gchar *ptr;
++
++  g_return_val_if_fail (commandline != NULL, NULL);
++  g_return_val_if_fail (placeholder != NULL, NULL);
++  g_return_val_if_fail (strlen (placeholder) == 2, NULL);
++
++  if (g_strrstr (commandline, placeholder))
++  {
++    return g_strdup (commandline);
++  }
++  else if (g_strrstr (commandline, "%%"))
++  {
++    exec = g_strdup (commandline);
++    ptr = g_strrstr (exec, "%%");
++    ptr[1] = placeholder[1];
++    return exec;
++  }
++  else
++    return g_strdup_printf ("%s %s", commandline, placeholder);
++}
++
+ /* Create for commandline {{{2 */
+ /**
+  * g_app_info_create_from_commandline:
+@@ -3969,10 +4019,20 @@ g_app_info_create_from_commandline (cons
+   info->terminal = (flags & G_APP_INFO_CREATE_NEEDS_TERMINAL) != 0;
+   info->startup_notify = (flags & G_APP_INFO_CREATE_SUPPORTS_STARTUP_NOTIFICATION) != 0;
+   info->hidden = FALSE;
+-  if ((flags & G_APP_INFO_CREATE_SUPPORTS_URIS) != 0)
+-    info->exec = g_strconcat (commandline, " %u", NULL);
++  if ((flags & G_APP_INFO_CREATE_SUPPORTS_MULTIPLE) != 0)
++    {
++      if ((flags & G_APP_INFO_CREATE_SUPPORTS_URIS) != 0)
++        info->exec = inject_file_placeholder (commandline, "%U");
++      else
++        info->exec = inject_file_placeholder (commandline, "%F");
++    }
+   else
+-    info->exec = g_strconcat (commandline, " %f", NULL);
++    {
++      if ((flags & G_APP_INFO_CREATE_SUPPORTS_URIS) != 0)
++        info->exec = inject_file_placeholder (commandline, "%u");
++      else
++        info->exec = inject_file_placeholder (commandline, "%f");
++    }
+   info->nodisplay = TRUE;
+   info->binary = binary_from_exec (info->exec);
+ 
+@@ -4005,8 +4065,10 @@ g_desktop_app_info_iface_init (GAppInfoI
+   iface->get_description = g_desktop_app_info_get_description;
+   iface->get_executable = g_desktop_app_info_get_executable;
+   iface->get_icon = g_desktop_app_info_get_icon;
++  iface->get_support_flags = g_desktop_app_info_get_support_flags;
+   iface->launch = g_desktop_app_info_launch;
+   iface->supports_uris = g_desktop_app_info_supports_uris;
++  iface->supports_multiple = g_desktop_app_info_supports_multiple;
+   iface->supports_files = g_desktop_app_info_supports_files;
+   iface->launch_uris = g_desktop_app_info_launch_uris;
+   iface->should_show = g_desktop_app_info_should_show;
+Index: wily/gio/gioenums.h
+===================================================================
+--- wily.orig/gio/gioenums.h
++++ wily/gio/gioenums.h
+@@ -36,6 +36,7 @@ G_BEGIN_DECLS
+  * @G_APP_INFO_CREATE_NEEDS_TERMINAL: Application opens in a terminal window.
+  * @G_APP_INFO_CREATE_SUPPORTS_URIS: Application supports URI arguments.
+  * @G_APP_INFO_CREATE_SUPPORTS_STARTUP_NOTIFICATION: Application supports startup notification. Since 2.26
++ * @G_APP_INFO_CREATE_SUPPORTS_MULTIPLE: Application supports multiple arguments.
+  *
+  * Flags used when creating a #GAppInfo.
+  */
+@@ -43,7 +44,8 @@ typedef enum {
+   G_APP_INFO_CREATE_NONE                           = 0,         /*< nick=none >*/
+   G_APP_INFO_CREATE_NEEDS_TERMINAL                 = (1 << 0),  /*< nick=needs-terminal >*/
+   G_APP_INFO_CREATE_SUPPORTS_URIS                  = (1 << 1),  /*< nick=supports-uris >*/
+-  G_APP_INFO_CREATE_SUPPORTS_STARTUP_NOTIFICATION  = (1 << 2)   /*< nick=supports-startup-notification >*/
++  G_APP_INFO_CREATE_SUPPORTS_STARTUP_NOTIFICATION  = (1 << 2),  /*< nick=supports-startup-notification >*/
++  G_APP_INFO_CREATE_SUPPORTS_MULTIPLE              = (1 << 3)   /*< nick=supports-multiple >*/
+ } GAppInfoCreateFlags;
+ 
+ /**
+Index: wily/gio/gwin32appinfo.c
+===================================================================
+--- wily.orig/gio/gwin32appinfo.c
++++ wily/gio/gwin32appinfo.c
+@@ -695,6 +695,12 @@ _g_win32_registry_key_build_and_new_w (G
+ }
+ 
+ 
++static GAppInfoCreateFlags
++g_win32_app_info_get_support_flags (GAppInfo *appinfo)
++{
++  return G_APP_INFO_CREATE_SUPPORTS_URIS;
++}
++
+ static gboolean
+ utf8_and_fold (const gunichar2  *str,
+                gchar           **str_u8,
+@@ -4265,6 +4271,12 @@ g_win32_app_info_supports_uris (GAppInfo
+ 
+ 
+ static gboolean
++g_win32_app_info_supports_multiple (GAppInfo *appinfo)
++{
++  return FALSE;
++}
++
++static gboolean
+ g_win32_app_info_supports_files (GAppInfo *appinfo)
+ {
+   GWin32AppInfo *info = G_WIN32_APP_INFO (appinfo);
+@@ -4428,8 +4440,10 @@ g_win32_app_info_iface_init (GAppInfoIfa
+   iface->get_description = g_win32_app_info_get_description;
+   iface->get_executable = g_win32_app_info_get_executable;
+   iface->get_icon = g_win32_app_info_get_icon;
++  iface->get_support_flags = g_win32_app_info_get_support_flags;
+   iface->launch = g_win32_app_info_launch;
+   iface->supports_uris = g_win32_app_info_supports_uris;
++  iface->supports_multiple = g_win32_app_info_supports_multiple;
+   iface->supports_files = g_win32_app_info_supports_files;
+   iface->launch_uris = g_win32_app_info_launch_uris;
+ /*  iface->should_show = g_win32_app_info_should_show;*/

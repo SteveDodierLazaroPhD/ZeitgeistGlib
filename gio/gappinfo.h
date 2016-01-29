@@ -61,8 +61,10 @@ typedef struct _GAppLaunchContextPrivate GAppLaunchContextPrivate;
  * @get_description: Gets a short description for the application described by the #GAppInfo.
  * @get_executable: Gets the executable name for the #GAppInfo.
  * @get_icon: Gets the #GIcon for the #GAppInfo.
+ * @get_support_flags: Gets the #GAppInfoCreateFlags of the #GAppInfo related to file and URI support.
  * @launch: Launches an application specified by the #GAppInfo.
  * @supports_uris: Indicates whether the application specified supports launching URIs.
+ * @supports_multiple: Indicates whether the application specified supports launching multiple items per instance.
  * @supports_files: Indicates whether the application specified accepts filename arguments.
  * @launch_uris: Launches an application with a list of URIs.
  * @should_show: Returns whether an application should be shown (e.g. when getting a list of installed applications).
@@ -98,11 +100,13 @@ struct _GAppInfoIface
   const char * (* get_description)              (GAppInfo           *appinfo);
   const char * (* get_executable)               (GAppInfo           *appinfo);
   GIcon *      (* get_icon)                     (GAppInfo           *appinfo);
+  GAppInfoCreateFlags (* get_support_flags)     (GAppInfo           *appinfo);
   gboolean     (* launch)                       (GAppInfo           *appinfo,
                                                  GList              *files,
                                                  GAppLaunchContext  *launch_context,
                                                  GError            **error);
   gboolean     (* supports_uris)                (GAppInfo           *appinfo);
+  gboolean     (* supports_multiple)            (GAppInfo           *appinfo);
   gboolean     (* supports_files)               (GAppInfo           *appinfo);
   gboolean     (* launch_uris)                  (GAppInfo           *appinfo,
                                                  GList              *uris,
@@ -161,12 +165,16 @@ const char *g_app_info_get_commandline              (GAppInfo             *appin
 GLIB_AVAILABLE_IN_ALL
 GIcon *     g_app_info_get_icon                     (GAppInfo             *appinfo);
 GLIB_AVAILABLE_IN_ALL
+GAppInfoCreateFlags g_app_info_get_support_flags    (GAppInfo             *appinfo);
+GLIB_AVAILABLE_IN_ALL
 gboolean    g_app_info_launch                       (GAppInfo             *appinfo,
                                                      GList                *files,
                                                      GAppLaunchContext    *launch_context,
                                                      GError              **error);
 GLIB_AVAILABLE_IN_ALL
 gboolean    g_app_info_supports_uris                (GAppInfo             *appinfo);
+GLIB_AVAILABLE_IN_ALL
+gboolean    g_app_info_supports_multiple            (GAppInfo             *appinfo);
 GLIB_AVAILABLE_IN_ALL
 gboolean    g_app_info_supports_files               (GAppInfo             *appinfo);
 GLIB_AVAILABLE_IN_ALL

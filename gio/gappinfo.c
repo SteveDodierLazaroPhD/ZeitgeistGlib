@@ -513,6 +513,30 @@ g_app_info_get_icon (GAppInfo *appinfo)
 
 
 /**
+ * g_app_info_get_support_flags:
+ * @appinfo: a #GAppInfo.
+ * 
+ * Gets the #GAppInfoCreateFlags for the application that indicate whether
+ * the application supports files or URIs, and whether the application
+ * supports opening multiple documents in a single instance.
+ *
+ * Returns: (transfer none): the #GAppInfoCreateFlags for @appinfo for file and
+ * URI support.
+ **/
+GAppInfoCreateFlags
+g_app_info_get_support_flags (GAppInfo *appinfo)
+{
+  GAppInfoIface *iface;
+  
+  g_return_val_if_fail (G_IS_APP_INFO (appinfo), G_APP_INFO_CREATE_NONE);
+
+  iface = G_APP_INFO_GET_IFACE (appinfo);
+
+  return (* iface->get_support_flags) (appinfo);
+}
+
+
+/**
  * g_app_info_launch:
  * @appinfo: a #GAppInfo
  * @files: (allow-none) (element-type GFile): a #GList of #GFile objects
@@ -583,6 +607,27 @@ g_app_info_supports_uris (GAppInfo *appinfo)
   iface = G_APP_INFO_GET_IFACE (appinfo);
 
   return (* iface->supports_uris) (appinfo);
+}
+
+
+/**
+ * g_app_info_supports_multiple:
+ * @appinfo: a #GAppInfo.
+ * 
+ * Checks if the application supports reading multiple files per instance.
+ *
+ * Returns: %TRUE if the @appinfo supports multiples.
+ **/
+gboolean
+g_app_info_supports_multiple (GAppInfo *appinfo)
+{
+  GAppInfoIface *iface;
+  
+  g_return_val_if_fail (G_IS_APP_INFO (appinfo), FALSE);
+
+  iface = G_APP_INFO_GET_IFACE (appinfo);
+
+  return (* iface->supports_multiple) (appinfo);
 }
 
 

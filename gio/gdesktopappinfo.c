@@ -52,6 +52,7 @@
 #include "gprintf.h"
 #include <zeitgeist.h>
 #define ZEITGEIST_ZG_TOOLKIT_APP_ACCESS_EVENT "activity://gui-toolkit/glib/AppAccess"
+#define ZEITGEIST_APP_LAUNCH_ACTOR            "activity://gui-toolkit/glib/Actor"
 
 typedef struct __ZeitgeistAppInfoData {
 	gchar *actor_name;
@@ -2087,6 +2088,19 @@ g_desktop_app_info_get_icon (GAppInfo *appinfo)
   return info->icon;
 }
 
+static GAppInfoCreateFlags
+g_desktop_app_info_get_support_flags (GAppInfo *appinfo)
+{
+  GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
+
+  if (g_app_info_supports_uris (appinfo))
+    flags += G_APP_INFO_CREATE_SUPPORTS_URIS;
+  if (g_app_info_supports_multiple (appinfo))
+    flags += G_APP_INFO_CREATE_SUPPORTS_MULTIPLE;
+
+  return flags;
+}
+
 /**
  * g_desktop_app_info_get_categories:
  * @info: a #GDesktopAppInfo
@@ -3024,7 +3038,7 @@ _log_zeitgeist_event_finish (_ZeitgeistAppInfoData *data)
   // Add the UCL metadata
   study_uri = g_strdup_printf("activity://null///pid://%d///winid://n/a///", getpid());
   subject = zeitgeist_subject_new_full(study_uri,
-    ZEITGEIST_NFO_SOFTWARE,
+    ZEITGEIST_APP_LAUNCH_ACTOR,
     ZEITGEIST_ZG_WORLD_ACTIVITY,
     "application/octet-stream",
     NULL,
@@ -3186,6 +3200,16 @@ g_desktop_app_info_supports_uris (GAppInfo *appinfo)
 
   return info->exec &&
     ((strstr (info->exec, "%u") != NULL) ||
+     (strstr (info->exec, "%U") != NULL));
+}
+
+static gboolean
+g_desktop_app_info_supports_multiple (GAppInfo *appinfo)
+{
+  GDesktopAppInfo *info = G_DESKTOP_APP_INFO (appinfo);
+
+  return info->exec &&
+    ((strstr (info->exec, "%F") != NULL) ||
      (strstr (info->exec, "%U") != NULL));
 }
 
@@ -3931,6 +3955,32 @@ g_desktop_app_info_delete (GAppInfo *appinfo)
   return FALSE;
 }
 
+static gchar *
+inject_file_placeholder (const char *commandline,
+                         const char *placeholder)
+{
+  gchar *exec;
+  gchar *ptr;
+
+  g_return_val_if_fail (commandline != NULL, NULL);
+  g_return_val_if_fail (placeholder != NULL, NULL);
+  g_return_val_if_fail (strlen (placeholder) == 2, NULL);
+
+  if (g_strrstr (commandline, placeholder))
+  {
+    return g_strdup (commandline);
+  }
+  else if (g_strrstr (commandline, "%%"))
+  {
+    exec = g_strdup (commandline);
+    ptr = g_strrstr (exec, "%%");
+    ptr[1] = placeholder[1];
+    return exec;
+  }
+  else
+    return g_strdup_printf ("%s %s", commandline, placeholder);
+}
+
 /* Create for commandline {{{2 */
 /**
  * g_app_info_create_from_commandline:
@@ -3969,10 +4019,20 @@ g_app_info_create_from_commandline (const char           *commandline,
   info->terminal = (flags & G_APP_INFO_CREATE_NEEDS_TERMINAL) != 0;
   info->startup_notify = (flags & G_APP_INFO_CREATE_SUPPORTS_STARTUP_NOTIFICATION) != 0;
   info->hidden = FALSE;
-  if ((flags & G_APP_INFO_CREATE_SUPPORTS_URIS) != 0)
-    info->exec = g_strconcat (commandline, " %u", NULL);
+  if ((flags & G_APP_INFO_CREATE_SUPPORTS_MULTIPLE) != 0)
+    {
+      if ((flags & G_APP_INFO_CREATE_SUPPORTS_URIS) != 0)
+        info->exec = inject_file_placeholder (commandline, "%U");
+      else
+        info->exec = inject_file_placeholder (commandline, "%F");
+    }
   else
-    info->exec = g_strconcat (commandline, " %f", NULL);
+    {
+      if ((flags & G_APP_INFO_CREATE_SUPPORTS_URIS) != 0)
+        info->exec = inject_file_placeholder (commandline, "%u");
+      else
+        info->exec = inject_file_placeholder (commandline, "%f");
+    }
   info->nodisplay = TRUE;
   info->binary = binary_from_exec (info->exec);
 
@@ -4005,8 +4065,10 @@ g_desktop_app_info_iface_init (GAppInfoIface *iface)
   iface->get_description = g_desktop_app_info_get_description;
   iface->get_executable = g_desktop_app_info_get_executable;
   iface->get_icon = g_desktop_app_info_get_icon;
+  iface->get_support_flags = g_desktop_app_info_get_support_flags;
   iface->launch = g_desktop_app_info_launch;
   iface->supports_uris = g_desktop_app_info_supports_uris;
+  iface->supports_multiple = g_desktop_app_info_supports_multiple;
   iface->supports_files = g_desktop_app_info_supports_files;
   iface->launch_uris = g_desktop_app_info_launch_uris;
   iface->should_show = g_desktop_app_info_should_show;

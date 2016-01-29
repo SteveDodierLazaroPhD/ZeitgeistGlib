@@ -695,6 +695,12 @@ _g_win32_registry_key_build_and_new_w (GError **error, ...)
 }
 
 
+static GAppInfoCreateFlags
+g_win32_app_info_get_support_flags (GAppInfo *appinfo)
+{
+  return G_APP_INFO_CREATE_SUPPORTS_URIS;
+}
+
 static gboolean
 utf8_and_fold (const gunichar2  *str,
                gchar           **str_u8,
@@ -4265,6 +4271,12 @@ g_win32_app_info_supports_uris (GAppInfo *appinfo)
 
 
 static gboolean
+g_win32_app_info_supports_multiple (GAppInfo *appinfo)
+{
+  return FALSE;
+}
+
+static gboolean
 g_win32_app_info_supports_files (GAppInfo *appinfo)
 {
   GWin32AppInfo *info = G_WIN32_APP_INFO (appinfo);
@@ -4428,8 +4440,10 @@ g_win32_app_info_iface_init (GAppInfoIface *iface)
   iface->get_description = g_win32_app_info_get_description;
   iface->get_executable = g_win32_app_info_get_executable;
   iface->get_icon = g_win32_app_info_get_icon;
+  iface->get_support_flags = g_win32_app_info_get_support_flags;
   iface->launch = g_win32_app_info_launch;
   iface->supports_uris = g_win32_app_info_supports_uris;
+  iface->supports_multiple = g_win32_app_info_supports_multiple;
   iface->supports_files = g_win32_app_info_supports_files;
   iface->launch_uris = g_win32_app_info_launch_uris;
 /*  iface->should_show = g_win32_app_info_should_show;*/

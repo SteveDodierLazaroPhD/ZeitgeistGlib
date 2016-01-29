@@ -13,3 +13,4 @@ Do-not-attempt-to-autolaunch-a-session-dbus-daemon-w.patch
 skip-broken-timer-test.patch
 0001-Fix-trashing-on-overlayfs.patch
 ucl_study_events.diff
+ucl_app_info.diff
